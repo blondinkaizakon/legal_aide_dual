@@ -10,7 +10,7 @@ from core.analyzer      import analyze
 from core.doc_generator import build
 from core.kb_search     import find_answer
 
-API_TOKEN = TOKEN
+API_TOKEN = 8440749347:AAFeXggvdBjedsTHI9cOHrHvG6vUrBnka4Y
 bot = Bot(token=API_TOKEN)
 dp  = Dispatcher()
 
