@@ -2,5 +2,4 @@ aiogram==2.25.1
 streamlit==1.28.1
 docxtpl==0.16.6
 PyMuPDF==1.23.8
-sentence-transformers==2.2.2
-torch==2.1.0
+sentence-transformers==2.2.0
