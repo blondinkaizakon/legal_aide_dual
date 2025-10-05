@@ -1,7 +1,8 @@
-import fitz
-TPL = "templates"  # путь к папки с шаблонами документов
-GEN = "generated"  # путь для сгенерированных документов
-TOKEN = "8440749347:AAFeXggvdBjedsTHI9cOHrHvG6vUrBnka4Y"
-def extract_text(pdf_path: str) -> str:
-    with fitz.open(pdf_path) as doc:
-        return "\n".join(page.get_text() for page in doc)
+# core/config.py
+import os
+
+# Путь к папке с шаблонами DOCX
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+TPL = os.path.join(BASE_DIR, "templates")      # папка с шаблонами
+GEN = os.path.join(BASE_DIR, "generated")      # папка для сгенерированных документов
