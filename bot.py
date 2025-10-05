@@ -1,80 +1,86 @@
-import asyncio, tempfile, os
-from aiogram import Bot, Dispatcher, types
+# bot/bot.py  (aiogram 3.x, Python 3.12)
 import asyncio
-async def main():
-    await dp.start_polling(bot)
-if __name__ == "__main__":
-    asyncio.run(main())
-from core.config import TOKEN
-from core.pdf_tool import extract_text
-from core.analyzer import analyze
+import tempfile
+import os
+from aiogram import Bot, Dispatcher, F, types
+from aiogram.types import InputFile
+from core.config        import TOKEN
+from core.pdf_tool      import extract_text
+from core.analyzer      import analyze
 from core.doc_generator import build
-from core.kb_search import find_answer
+from core.kb_search     import find_answer
 
-API_TOKEN = "8440749347:AAFeXggvdBjedsTHI9cOHrHvG6vUrBnka4Y"
+API_TOKEN = TOKEN
+bot = Bot(token=API_TOKEN)
+dp  = Dispatcher()
 
-bot = Bot(token=API_TOKEN) 
-dp  = Dispatcher(bot)
+user_data = {}                       # {user_id: dict}
 
-user_data = {}   # {user_id: dict}
-
-@dp.message_handler(commands="start")
-async def start(m: types.Message):
+# ==================== КЛАВИАТУРА ====================
+def main_menu_kb() -> types.ReplyKeyboardMarkup:
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.add("📄 Анализ PDF", "📝 Создать договор", "❓ Задать вопрос")
-    await m.answer("👋 LegalAideIPbot – помощник для ИП", reply_markup=kb)
+    return kb
 
-@dp.message_handler(content_types=types.ContentType.DOCUMENT)
-async def handle_doc(m: types.Message):
-    if not m.document.file_name.lower().endswith(".pdf"):
-        return await m.reply("Пришлите PDF-договор")
+# ==================== КОМАНДЫ ====================
+@dp.message(F.command == "start")
+async def cmd_start(message: types.Message):
+    await message.answer("👋 LegalAideIPbot – помощник для ИП", reply_markup=main_menu_kb())
+
+# ==================== АНАЛИЗ PDF ====================
+@dp.message(F.document)
+async def handle_pdf(message: types.Message):
+    if not message.document.file_name.lower().endswith(".pdf"):
+        return await message.reply("Пришлите PDF-договор")
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        await m.document.download(tmp.name)
+        await message.bot.download(message.document.file_id, tmp.name)
         text = extract_text(tmp.name)
         os.unlink(tmp.name)
         risks = "\n".join(analyze(text))
-        await m.answer(risks)
+        await message.answer(risks or "✅ Критических рисков не обнаружено")
 
-@dp.message_handler(lambda m: m.text == "📝 Создать договор")
-async def new_contract(m: types.Message):
-    user_data[m.from_user.id] = {}
-    await m.answer("Введите город (например, Москва):")
+# ==================== ГЕНЕРАТОР ДОГОВОРА ====================
+@dp.message(F.text == "📝 Создать договор")
+async def new_contract(message: types.Message):
+    user_data[message.from_user.id] = {}
+    await message.answer("Введите город (например, Москва):")
 
-@dp.message_handler(lambda m: m.text == "❓ Задать вопрос")
-async def ask(m: types.Message):
-    await m.answer("Напишите ваш вопрос:")
+# ==================== FAQ ====================
+@dp.message(F.text == "❓ Задать вопрос")
+async def ask_question(message: types.Message):
+    await message.answer("Напишите ваш вопрос:")
 
-@dp.message_handler()
-async def collect(m: types.Message):
-    uid = m.from_user.id
+# ==================== СБОР ДАННЫХ + ГЕНЕРАЦИЯ ====================
+@dp.message()
+async def collect_data(message: types.Message):
+    uid  = message.from_user.id
     data = user_data.setdefault(uid, {})
+
     if "city" not in data:
-        data["city"] = m.text
-        return await m.answer("Арендодатель (ФИО полностью):")
+        data["city"] = message.text
+        return await message.answer("Арендодатель (ФИО полностью):")
     if "landlord" not in data:
-        data["landlord"] = m.text
-        return await m.answer("Арендатор (ФИО полностью):")
+        data["landlord"] = message.text
+        return await message.answer("Арендатор (ФИО полностью):")
     if "tenant" not in data:
-        data["tenant"] = m.text
-        return await m.answer("Описание помещения (адрес, площадь):")
+        data["tenant"] = message.text
+        return await message.answer("Описание помещения (адрес, площадь):")
     if "property" not in data:
-        data["property"] = m.text
-        return await m.answer("Сумма аренды в месяц (руб.):")
+        data["property"] = message.text
+        return await message.answer("Сумма аренды в месяц (руб.):")
     if "rent" not in data:
-        data["rent"] = m.text
-        # финальный рендер
+        data["rent"] = message.text
         data.update({"day": "01", "month": "января", "year": "2025",
                      "landlord_passport": "серия 1234 №567890",
                      "tenant_passport":  "серия 9876 №543210"})
         out_path = build(data, f"аренда_ИП_{uid}.docx")
-        await m.reply_document(types.InputFile(out_path))
-        data.clear()
+        await message.reply_document(InputFile(out_path))
+        data.clear()                       # сброс после отправки
     else:
-        # режим поиска FAQ
-        await m.answer(find_answer(m.text))
+        # FAQ-режим
+        await message.answer(find_answer(message.text))
 
-async def main():
-    await dp.start_polling(bot)
+# ==================== ЗАПУСК ====================
 async def main():
     await dp.start_polling(bot)
 
