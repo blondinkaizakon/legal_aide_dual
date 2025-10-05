@@ -4,3 +4,4 @@ venv/
 .env
 generated/
 *.log
+gunicorn==21.2.0
