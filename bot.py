@@ -1,6 +1,10 @@
 import asyncio, tempfile, os
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+import asyncio
+async def main():
+    await dp.start_polling(bot)
+if __name__ == "__main__":
+    asyncio.run(main())
 from core.config import TOKEN
 from core.pdf_tool import extract_text
 from core.analyzer import analyze
@@ -69,5 +73,8 @@ async def collect(m: types.Message):
         # режим поиска FAQ
         await m.answer(find_answer(m.text))
 
+async def main():
+    await dp.start_polling(bot)
+
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True)
+    asyncio.run(main())
