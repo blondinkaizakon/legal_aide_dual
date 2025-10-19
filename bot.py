@@ -1,10 +1,10 @@
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from core.config import TOKEN
-from core.pdf_tool import extract_text # Предполагается, что extract_text принимает путь к файлу
-from core.analyzer import analyze # Предполагается, что analyze принимает текст
-from core.doc_generator import build # Предполагается, что build принимает данные и имя файла
-from core.kb_search import find_answer # Резервный поиск, если векторный не дал результата
+from core.pdf_tool import extract_text
+from core.analyzer import analyze
+from core.doc_generator import build
+from core.kb_search import find_answer
 import pickle
 import tempfile
 import os
@@ -77,12 +77,13 @@ DOC_TYPES = {
     "Претензия": "claim",
 }
 
-# --- ОБРАБОТЧИКИ КОМАНД И КНОПОК ---
 @dp.message_handler(commands="start")
 async def start(m: types.Message):
     user_id = m.from_user.id
+    logger.info(f"Пользователь {user_id} нажал /start. Сбрасываю состояние.")
     # Сбрасываем состояние при /start
     user_states[user_id] = {'state': STATE_START, 'data': {}}
+    logger.info(f"Состояние пользователя {user_id} сброшено до {STATE_START}.")
     
     # Создаём главное меню
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -95,12 +96,14 @@ async def start(m: types.Message):
 @dp.message_handler(lambda m: m.text == "❓ Задать вопрос")
 async def ask_question(m: types.Message):
     user_id = m.from_user.id
+    logger.info(f"Пользователь {user_id} нажал '❓ Задать вопрос'. Устанавливаю состояние {STATE_WAITING_QUESTION}.")
     user_states[user_id]['state'] = STATE_WAITING_QUESTION
     await m.answer("Напишите ваш вопрос:")
 
 @dp.message_handler(lambda m: m.text == "📄 Получить готовый документ")
 async def choose_document_type(m: types.Message):
     user_id = m.from_user.id
+    logger.info(f"Пользователь {user_id} нажал '📄 Получить готовый документ'. Устанавливаю состояние {STATE_WAITING_DOC_TYPE}.")
     user_states[user_id]['state'] = STATE_WAITING_DOC_TYPE
     
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -113,6 +116,7 @@ async def choose_document_type(m: types.Message):
 @dp.message_handler(lambda m: m.text == "🔍 Распознать документ")
 async def request_document(m: types.Message):
     user_id = m.from_user.id
+    logger.info(f"Пользователь {user_id} нажал '🔍 Распознать документ'. Устанавливаю состояние {STATE_WAITING_DOC_UPLOAD}.")
     user_states[user_id]['state'] = STATE_WAITING_DOC_UPLOAD
     await m.answer("Пришлите PDF-файл или фото документа для анализа.")
 
@@ -122,6 +126,7 @@ async def request_document(m: types.Message):
 async def handle_uploaded_document(m: types.Message):
     user_id = m.from_user.id
     state_info = user_states.get(user_id, {'state': STATE_START})
+    logger.info(f"Пользователь {user_id} прислал PDF. Текущее состояние: {state_info['state']}")
 
     if state_info['state'] == STATE_WAITING_DOC_UPLOAD:
         if not m.document.file_name.lower().endswith(".pdf"):
@@ -144,6 +149,7 @@ async def handle_uploaded_document(m: types.Message):
         
         # Возврат в начальное состояние после анализа
         user_states[user_id] = {'state': STATE_START, 'data': {}}
+        logger.info(f"Состояние пользователя {user_id} после анализа PDF сброшено до {STATE_START}.")
     else:
         await m.answer("Сначала выберите 'Распознать документ' из меню.")
 
@@ -152,6 +158,7 @@ async def handle_uploaded_document(m: types.Message):
 async def handle_uploaded_photo(m: types.Message):
     user_id = m.from_user.id
     state_info = user_states.get(user_id, {'state': STATE_START})
+    logger.info(f"Пользователь {user_id} прислал фото. Текущее состояние: {state_info['state']}")
 
     if state_info['state'] == STATE_WAITING_DOC_UPLOAD:
         # Получаем file_id самого большого размера (наивысшее качество)
@@ -168,13 +175,11 @@ async def handle_uploaded_photo(m: types.Message):
             # Здесь должна быть логика OCR и последующего анализа
             # Пока что просто сообщение
             await m.answer("Фото документа получено. Обработка изображения (OCR) и анализ пока не реализованы в этом примере.")
-            # После OCR: text = ocr_function(tmp_img.name)
-            # analysis_result = "\n".join(analyze(text))
-            # await m.answer(f"Результаты анализа документа:\n\n{analysis_result}")
             os.unlink(tmp_img.name)
 
         # Возврат в начальное состояние после анализа
         user_states[user_id] = {'state': STATE_START, 'data': {}}
+        logger.info(f"Состояние пользователя {user_id} после анализа фото сброшено до {STATE_START}.")
     else:
         await m.answer("Сначала выберите 'Распознать документ' из меню.")
 
@@ -186,6 +191,7 @@ async def handle_message(m: types.Message):
     state_info = user_states.get(user_id, {'state': STATE_START, 'data': {}})
     state = state_info['state']
     data = state_info['data']
+    logger.info(f"Пользователь {user_id} отправил сообщение '{text}'. Текущее состояние: {state}")
 
     if state == STATE_WAITING_QUESTION:
         logger.info(f"Поиск в KB для пользователя {user_id}: {text}")
@@ -199,12 +205,14 @@ async def handle_message(m: types.Message):
             response_text = f"Найдено в документе '{source_file}' (схожесть: {score:.2f}):\n\n{chunk_text}"
         else:
             # Резервный поиск
+            logger.info(f"Ответ не найден в векторной базе. Использую find_answer для '{text}'.")
             fallback_answer = find_answer(text)
             response_text = fallback_answer # find_answer должен возвращать строку
 
         await m.answer(response_text)
         # Возврат в начальное состояние после ответа на вопрос
         user_states[user_id] = {'state': STATE_START, 'data': {}}
+        logger.info(f"Состояние пользователя {user_id} после ответа на вопрос сброшено до {STATE_START}.")
 
     elif state == STATE_WAITING_DOC_TYPE:
         if text in DOC_TYPES:
@@ -212,10 +220,11 @@ async def handle_message(m: types.Message):
             data['doc_data'] = {} # Инициализируем словарь для данных договора
             data['doc_data']['step'] = 'client' # Устанавливаем первый шаг
             user_states[user_id]['state'] = STATE_WAITING_DOC_DATA
-            
+            logger.info(f"Пользователь {user_id} выбрал тип документа '{text}'. Устанавливаю состояние {STATE_WAITING_DOC_DATA}.")
             await m.answer(f"Вы выбрали '{text}'. Кто заказчик/покупатель/работодатель?")
         elif text == "Назад":
             user_states[user_id] = {'state': STATE_START, 'data': {}}
+            logger.info(f"Пользователь {user_id} нажал 'Назад'. Возврат в {STATE_START}.")
             await start(m) # Повторно отправляем стартовое сообщение и меню
         else:
             await m.answer("Пожалуйста, выберите тип документа из меню.")
@@ -223,6 +232,7 @@ async def handle_message(m: types.Message):
     elif state == STATE_WAITING_DOC_DATA:
         # Собираем данные для договора
         step = data['doc_data'].get('step')
+        logger.info(f"Сбор данных для договора. Шаг: {step}")
         if step == 'client':
             data['doc_data']['client'] = text
             data['doc_data']['step'] = 'contractor'
@@ -254,19 +264,26 @@ async def handle_message(m: types.Message):
             
             # Возврат в начальное состояние после генерации
             user_states[user_id] = {'state': STATE_START, 'data': {}}
+            logger.info(f"Состояние пользователя {user_id} после сбора данных сброшено до {STATE_START}.")
         else:
             # Непредвиденное состояние
             await m.answer("Произошла ошибка при сборе данных. Пожалуйста, начните снова.")
             user_states[user_id] = {'state': STATE_START, 'data': {}}
+            logger.info(f"Состояние пользователя {user_id} после ошибки сброшено до {STATE_START}.")
 
     elif state == STATE_START:
         # Если пользователь что-то ввёл в начальном состоянии, не нажав кнопку
+        logger.info(f"Пользователь {user_id} ввел текст в состоянии {STATE_START}, не нажав кнопку.")
         await m.answer("Пожалуйста, воспользуйтесь меню.")
 
     else:
         # Любое другое неожиданное состояние
+        logger.warning(f"Пользователь {user_id} в неожиданном состоянии: {state}")
         await m.answer("Произошла ошибка. Пожалуйста, используйте команду /start.")
+        user_states[user_id] = {'state': STATE_START, 'data': {}}
+        logger.info(f"Состояние пользователя {user_id} после ошибки сброшено до {STATE_START}.")
 
 
 if __name__ == "__main__":
+    logger.info("Запускаю бота...")
     executor.start_polling(dp, skip_updates=True)
