@@ -30,7 +30,31 @@ async def start(m: types.Message):
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.add("📄 Анализ PDF", "📝 Создать договор", "❓ Задать вопрос")
     await m.answer("👋 LegalAideIPbot – помощник для ИП", reply_markup=kb)
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # ... (проверки согласия, состояний, команд) ...
 
+    if state == STATE_START:
+        # ... (проверки юмора, кнопок меню) ...
+        # Если не подошло ни одно из специфических условий
+        user_question = update.message.text.strip()
+        # Вызов поиска в базе знаний
+        kb_results = search_in_knowledge_base(user_question, top_k=1)
+
+        if kb_results and kb_results[0]['score'] > 0.5: # Порог сходства
+            best_match = kb_results[0]
+            source_file = best_match['metadata'].get('source_file', 'Неизвестный документ')
+            chunk_text = best_match['metadata'].get('original_chunk', '')[:500] + "..." # Обрезаем для вывода
+            response_text = f"Найдено в документе '{source_file}':\n\n{chunk_text}\n\nОценка сходства: {best_match['score']:.4f}"
+        else:
+            # Если не найдено в базе знаний, используйте старую логику или стандартный ответ
+            response_text = TEXTS["unknown_message"] # или другая логика
+
+        await update.message.reply_text(
+            response_text,
+            reply_markup=ReplyKeyboardMarkup(MAIN_MENU_KEYBOARD, resize_keyboard=True)
+        )
+        # USER_STATES[user_id] = STATE_START # Уже в START
+   
 @dp.message_handler(content_types=types.ContentType.DOCUMENT)
 async def handle_doc(m: types.Message):
     if not m.document.file_name.lower().endswith(".pdf"):
