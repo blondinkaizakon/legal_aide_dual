@@ -1,4 +1,8 @@
 # bot.py
+import pickle # Для загрузки метаданных
+from sentence_transformers import SentenceTransformer # Для NLP
+import faiss # Для векторной базы
+import os # Для работы с путями
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
 from core.config import TOKEN
