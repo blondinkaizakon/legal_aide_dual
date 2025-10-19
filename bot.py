@@ -80,3 +80,19 @@ async def collect(m: types.Message):
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
+
+def search_in_knowledge_base(query_text, top_k=1):
+    """Поиск в векторной базе знаний."""
+    query_embedding = model.encode([query_text])
+    faiss.normalize_L2(query_embedding.astype('float32'))
+    scores, indices = index.search(query_embedding.astype('float32'), top_k)
+
+    results = []
+    for i in range(len(indices[0])):
+        idx = indices[0][i]
+        if 0 <= idx < len(metadata_list): # Проверка границ
+            results.append({
+                "metadata": metadata_list[idx],
+                "score": scores[0][i]
+            })
+    return results
