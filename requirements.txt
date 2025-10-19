@@ -9,3 +9,4 @@ faiss-cpu # или faiss-gpu
 PyPDF2
 pdfplumber
 python-docx
+aiohttp>=3.8.0,<3.9.0
