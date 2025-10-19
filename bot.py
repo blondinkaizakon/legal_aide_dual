@@ -77,6 +77,7 @@ DOC_TYPES = {
     "Претензия": "claim",
 }
 
+# --- ОБРАБОТЧИКИ КОМАНД И КНОПОК ---
 @dp.message_handler(commands="start")
 async def start(m: types.Message):
     user_id = m.from_user.id
@@ -115,7 +116,8 @@ async def request_document(m: types.Message):
     user_states[user_id]['state'] = STATE_WAITING_DOC_UPLOAD
     await m.answer("Пришлите PDF-файл или фото документа для анализа.")
 
-# --- Обработчик для PDF ---
+# --- ОБРАБОТЧИКИ КОНТЕНТА (ФАЙЛЫ, ФОТО) ---
+# Обработчик для PDF
 @dp.message_handler(content_types=types.ContentType.DOCUMENT)
 async def handle_uploaded_document(m: types.Message):
     user_id = m.from_user.id
@@ -145,7 +147,7 @@ async def handle_uploaded_document(m: types.Message):
     else:
         await m.answer("Сначала выберите 'Распознать документ' из меню.")
 
-# --- Обработчик для фото ---
+# Обработчик для фото
 @dp.message_handler(content_types=types.ContentType.PHOTO)
 async def handle_uploaded_photo(m: types.Message):
     user_id = m.from_user.id
@@ -176,7 +178,7 @@ async def handle_uploaded_photo(m: types.Message):
     else:
         await m.answer("Сначала выберите 'Распознать документ' из меню.")
 
-# --- Обработчик сообщений для остальных состояний ---
+# --- ОБЩИЙ ОБРАБОТЧИК СООБЩЕНИЙ (ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ) ---
 @dp.message_handler()
 async def handle_message(m: types.Message):
     user_id = m.from_user.id
