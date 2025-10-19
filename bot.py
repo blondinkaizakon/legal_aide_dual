@@ -6,7 +6,19 @@ from core.pdf_tool import extract_text
 from core.analyzer import analyze
 from core.doc_generator import build
 from core.kb_search import find_answer
+import pickle
 
+logger.info("Загрузка модели NLP...")
+model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+
+logger.info("Загрузка FAISS индекса...")
+index = faiss.read_index("faiss_index.bin")
+
+logger.info("Загрузка метаданных...")
+with open("metadata.pkl", "rb") as f:
+    metadata_list = pickle.load(f)
+
+logger.info("Модель, индекс и метаданные загружены.")
 API_TOKEN = TOKEN
 bot = Bot(token=API_TOKEN)
 dp  = Dispatcher(bot)
