@@ -4,3 +4,8 @@ docxtpl==0.16.6
 PyMuPDF==1.23.8
 torch==1.10.0
 sentence-transformers==2.2.2
+sentence-transformers
+faiss-cpu # или faiss-gpu
+PyPDF2
+pdfplumber
+python-docx
