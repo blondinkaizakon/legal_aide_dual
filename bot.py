@@ -1,5 +1,9 @@
+# bot.py
+import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types
-from aiogram.utils import executor
+from aiogram.filters import CommandStart, CommandObject
+# from aiogram.utils import executor # <-- УБРАНО для aiogram 3.x
 from core.config import TOKEN
 from core.pdf_tool import extract_text
 from core.analyzer import analyze
@@ -8,8 +12,9 @@ from core.kb_search import find_answer
 import pickle
 import tempfile
 import os
-import logging
+
 # --- Импорты для векторной базы знаний ---
+# Убедитесь, что sentence-transformers и faiss-cpu установлены
 from sentence_transformers import SentenceTransformer
 import faiss
 # --- Конец импортов ---
@@ -19,42 +24,60 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Загрузка векторной базы знаний ---
-logger.info("Загрузка модели NLP...")
-model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+# Обернем в try-except, чтобы бот запускался даже если KB не загружается
+try:
+    logger.info("Загрузка модели NLP...")
+    model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
 
-logger.info("Загрузка FAISS индекса...")
-index = faiss.read_index("data/faiss_index.bin")
+    logger.info("Загрузка FAISS индекса...")
+    index = faiss.read_index("data/faiss_index.bin")
 
-logger.info("Загрузка метаданных...")
-with open("data/kb_metadata.pkl", "rb") as f:
-    metadata_list = pickle.load(f)
+    logger.info("Загрузка метаданных...")
+    with open("data/kb_metadata.pkl", "rb") as f:
+        metadata_list = pickle.load(f)
 
-logger.info("Модель, индекс и метаданные загружены.")
+    logger.info("Модель, индекс и метаданные загружены.")
+    KB_AVAILABLE = True
+except Exception as e:
+    logger.error(f"Не удалось загрузить векторную базу знаний: {e}")
+    model, index, metadata_list = None, None, None
+    KB_AVAILABLE = False
 
 # --- Функция поиска в базе знаний ---
 def search_in_knowledge_base(query_text, top_k=1, threshold=0.5):
     """Поиск в векторной базе знаний."""
-    if not query_text.strip():
+    if not KB_AVAILABLE or not query_text.strip() or model is None or index is None or metadata_list is None:
+        logger.info("Векторная база знаний недоступна или не загружена.")
         return []
-    query_embedding = model.encode([query_text])
-    faiss.normalize_L2(query_embedding.astype('float32'))
-    scores, indices = index.search(query_embedding.astype('float32'), top_k)
+    try:
+        query_embedding = model.encode([query_text])
+        faiss.normalize_L2(query_embedding.astype('float32'))
+        scores, indices = index.search(query_embedding.astype('float32'), top_k)
 
-    results = []
-    for i in range(len(indices[0])):
-        idx = indices[0][i]
-        score = scores[0][i]
-        if 0 <= idx < len(metadata_list) and score >= threshold:
-            results.append({
-                "metadata": metadata_list[idx],
-                "score": float(score)
-            })
-    return results
+        results = []
+        for i in range(len(indices[0])):
+            idx = indices[0][i]
+            score = scores[0][i]
+            if 0 <= idx < len(metadata_list) and score >= threshold:
+                results.append({
+                    "metadata": metadata_list[idx],
+                    "score": float(score)
+                })
+        return results
+    except Exception as e:
+        logger.error(f"Ошибка при поиске в векторной базе: {e}")
+        return []
 # --- Конец функции поиска ---
 
 API_TOKEN = TOKEN
+# Проверка токена
+if not API_TOKEN or API_TOKEN == "YOUR_BOT_TOKEN_HERE":
+    logger.error("Критическая ошибка: BOT_TOKEN не установлен или имеет значение по умолчанию. Проверьте .env файл и переменные окружения.")
+    exit(1) # Завершить работу, если токен отсутствует
+
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
+# Убираем aiohttp_retry для упрощения, если он не нужен
+dp = Dispatcher() # Убран aiohttp_retry для aiogram 3.x
 
 # Состояния пользователей
 user_states = {} # {user_id: {'state': str, 'data': dict}}
@@ -77,8 +100,9 @@ DOC_TYPES = {
     "Претензия": "claim",
 }
 
-@dp.message_handler(commands="start")
-async def start(m: types.Message):
+# --- ХЭНДЛЕРЫ ---
+@dp.message(CommandStart())
+async def start(m: types.Message, command: CommandObject) -> None:
     user_id = m.from_user.id
     logger.info(f"Пользователь {user_id} нажал /start. Сбрасываю состояние.")
     # Сбрасываем состояние при /start
@@ -93,15 +117,15 @@ async def start(m: types.Message):
     
     await m.answer("Ваш юридический помощник приветствует вас! Чем могу помочь?", reply_markup=kb)
 
-@dp.message_handler(lambda m: m.text == "❓ Задать вопрос")
-async def ask_question(m: types.Message):
+@dp.message(lambda m: m.text == "❓ Задать вопрос")
+async def ask_question(m: types.Message) -> None:
     user_id = m.from_user.id
     logger.info(f"Пользователь {user_id} нажал '❓ Задать вопрос'. Устанавливаю состояние {STATE_WAITING_QUESTION}.")
     user_states[user_id]['state'] = STATE_WAITING_QUESTION
     await m.answer("Напишите ваш вопрос:")
 
-@dp.message_handler(lambda m: m.text == "📄 Получить готовый документ")
-async def choose_document_type(m: types.Message):
+@dp.message(lambda m: m.text == "📄 Получить готовый документ")
+async def choose_document_type(m: types.Message) -> None:
     user_id = m.from_user.id
     logger.info(f"Пользователь {user_id} нажал '📄 Получить готовый документ'. Устанавливаю состояние {STATE_WAITING_DOC_TYPE}.")
     user_states[user_id]['state'] = STATE_WAITING_DOC_TYPE
@@ -113,8 +137,8 @@ async def choose_document_type(m: types.Message):
     
     await m.answer("Выберите тип документа:", reply_markup=kb)
 
-@dp.message_handler(lambda m: m.text == "🔍 Распознать документ")
-async def request_document(m: types.Message):
+@dp.message(lambda m: m.text == "🔍 Распознать документ")
+async def request_document(m: types.Message) -> None:
     user_id = m.from_user.id
     logger.info(f"Пользователь {user_id} нажал '🔍 Распознать документ'. Устанавливаю состояние {STATE_WAITING_DOC_UPLOAD}.")
     user_states[user_id]['state'] = STATE_WAITING_DOC_UPLOAD
@@ -122,8 +146,8 @@ async def request_document(m: types.Message):
 
 # --- ОБРАБОТЧИКИ КОНТЕНТА (ФАЙЛЫ, ФОТО) ---
 # Обработчик для PDF
-@dp.message_handler(content_types=types.ContentType.DOCUMENT)
-async def handle_uploaded_document(m: types.Message):
+@dp.message(lambda m: m.content_type == types.ContentType.DOCUMENT)
+async def handle_uploaded_document(m: types.Message) -> None:
     user_id = m.from_user.id
     state_info = user_states.get(user_id, {'state': STATE_START})
     logger.info(f"Пользователь {user_id} прислал PDF. Текущее состояние: {state_info['state']}")
@@ -134,7 +158,7 @@ async def handle_uploaded_document(m: types.Message):
             return
 
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-            await m.document.download(tmp.name)
+            await bot.download_file((await bot.get_file(m.document.file_id)).file_path, tmp.name)
             try:
                 # Извлечение текста из PDF
                 text = extract_text(tmp.name)
@@ -154,8 +178,8 @@ async def handle_uploaded_document(m: types.Message):
         await m.answer("Сначала выберите 'Распознать документ' из меню.")
 
 # Обработчик для фото
-@dp.message_handler(content_types=types.ContentType.PHOTO)
-async def handle_uploaded_photo(m: types.Message):
+@dp.message(lambda m: m.content_type == types.ContentType.PHOTO)
+async def handle_uploaded_photo(m: types.Message) -> None:
     user_id = m.from_user.id
     state_info = user_states.get(user_id, {'state': STATE_START})
     logger.info(f"Пользователь {user_id} прислал фото. Текущее состояние: {state_info['state']}")
@@ -183,17 +207,20 @@ async def handle_uploaded_photo(m: types.Message):
     else:
         await m.answer("Сначала выберите 'Распознать документ' из меню.")
 
-# --- ОБЩИЙ ОБРАБОТЧИК СООБЩЕНИЙ (ДОЛЖЕН БЫТЬ ПОСЛЕДНИМ) ---
-@dp.message_handler()
-async def handle_message(m: types.Message):
+# --- ОБЩИЙ ОБРАБОТЧИК СООБЩЕНИЙ ---
+@dp.message()
+async def handle_message(m: types.Message) -> None:
     user_id = m.from_user.id
-    text = m.text.strip()
+    text = m.text.strip() if m.text else ""
     state_info = user_states.get(user_id, {'state': STATE_START, 'data': {}})
     state = state_info['state']
     data = state_info['data']
     logger.info(f"Пользователь {user_id} отправил сообщение '{text}'. Текущее состояние: {state}")
 
     if state == STATE_WAITING_QUESTION:
+        if not text:
+             await m.answer("Пожалуйста, напишите ваш вопрос.")
+             return
         logger.info(f"Поиск в KB для пользователя {user_id}: {text}")
         kb_results = search_in_knowledge_base(text, top_k=1, threshold=0.6)
 
@@ -225,11 +252,15 @@ async def handle_message(m: types.Message):
         elif text == "Назад":
             user_states[user_id] = {'state': STATE_START, 'data': {}}
             logger.info(f"Пользователь {user_id} нажал 'Назад'. Возврат в {STATE_START}.")
-            await start(m) # Повторно отправляем стартовое сообщение и меню
+            # Отправляем стартовое сообщение снова
+            await start(m, CommandObject(command="start", args="", message=m))
         else:
             await m.answer("Пожалуйста, выберите тип документа из меню.")
 
     elif state == STATE_WAITING_DOC_DATA:
+        if not text:
+             await m.answer("Пожалуйста, введите данные.")
+             return
         # Собираем данные для договора
         step = data['doc_data'].get('step')
         logger.info(f"Сбор данных для договора. Шаг: {step}")
@@ -283,7 +314,15 @@ async def handle_message(m: types.Message):
         user_states[user_id] = {'state': STATE_START, 'data': {}}
         logger.info(f"Состояние пользователя {user_id} после ошибки сброшено до {STATE_START}.")
 
+# --- ФУНКЦИЯ ЗАПУСКА ---
+async def main() -> None:
+    """Главная асинхронная функция для запуска бота."""
+    logger.info("Запуск Telegram-бота...")
+    # Запуск поллинга
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     logger.info("Запускаю бота...")
-    executor.start_polling(dp, skip_updates=True)
+    # Запуск асинхронной функции main
+    asyncio.run(main())
+
